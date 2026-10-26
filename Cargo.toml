@@ -1,0 +1,51 @@
+[workspace]
+resolver = "3"
+members = ["crates/prism-core", "crates/prism-engine", "crates/prism-cli", "crates/prism-app", "crates/prism-installer"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.95"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+rayon = "1.12"
+crossbeam-channel = "0.5"
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+half = "2"
+zip = { version = "2", default-features = false }
+# api-17 keeps compatibility with the ONNX Runtime 1.17 that ships with Windows 11; newer runtimes also work.
+# Provider features only add registration code; availability is checked at run time on each OS.
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-17", "directml", "cuda", "coreml"] }
+eframe = "0.37"
+egui = "0.37"
+rfd = "0.15"
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_LibraryLoader"] }
+libc = "0.2"
+prism-core = { path = "crates/prism-core" }
+prism-engine = { path = "crates/prism-engine" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+debug = "line-tables-only"
+
+# Release builds for installers and packages: no debug info, symbols stripped.
+[profile.dist]
+inherits = "release"
+debug = false
+strip = true
+
+# Image kernels are unusable without optimisation; keep dev builds fast to run.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

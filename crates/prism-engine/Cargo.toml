@@ -1,0 +1,31 @@
+[package]
+name = "prism-engine"
+description = "Frame pipeline, image kernels, interpolation and ONNX inference for Prism Video Enhancer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["onnx"]
+# ONNX Runtime inference (loaded dynamically at run time; the build never links it).
+onnx = ["dep:ort"]
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+rayon.workspace = true
+crossbeam-channel.workspace = true
+half.workspace = true
+zip.workspace = true
+prism-core.workspace = true
+ort = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

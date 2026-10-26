@@ -1,0 +1,22 @@
+[package]
+name = "prism-cli"
+description = "Command-line front end for Prism Video Enhancer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "prism"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+prism-core.workspace = true
+prism-engine.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

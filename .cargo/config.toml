@@ -1,0 +1,4 @@
+# AVX2 + FMA (x86-64-v3: Intel Haswell / AMD Zen and newer). The image kernels rely on
+# auto-vectorisation; the SSE2 baseline is 2-3x slower. Remove this block for older CPUs.
+[target.'cfg(target_arch = "x86_64")']
+rustflags = ["-C", "target-cpu=x86-64-v3"]

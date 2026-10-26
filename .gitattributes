@@ -1,0 +1,2 @@
+# Shell scripts run on Linux and macOS build machines: keep LF line endings in every checkout.
+*.sh text eol=lf

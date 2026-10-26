@@ -1,0 +1,174 @@
+# Builds and smoke-tests the Windows, Linux and macOS packages.
+#
+# Run it from the Actions tab ("Run workflow"), or push a tag such as v0.1.0 to also publish the
+# packages as a GitHub Release. Each run's packages are downloadable from its summary page
+# (Artifacts) for 90 days.
+name: Build packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS (.dmg)
+    # Apple silicon runner; the x86_64 half of the universal app is cross-compiled.
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - name: Rust toolchain
+        run: rustup update stable --no-self-update && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos
+      - name: Build the universal app and .dmg
+        run: bash packaging/macos/build.sh
+      - name: Smoke test the packaged app
+        run: |
+          set -euo pipefail
+          brew install ffmpeg
+          hdiutil attach dist/*.dmg -nobrowse -mountpoint /tmp/prism-dmg
+          APP="/tmp/prism-dmg/Prism Video Enhancer.app/Contents/MacOS"
+          "$APP/prism" devices
+          ffmpeg -hide_banner -loglevel error -f lavfi -i "testsrc2=s=320x180:r=30" -t 2 -c:v libx264 -pix_fmt yuv420p /tmp/in.mp4
+          "$APP/prism" run /tmp/in.mp4 --upscale 2x --fps 60 --overwrite -o /tmp/classic-flow.mp4
+          "$APP/prism" models fetch rife
+          "$APP/prism" run /tmp/in.mp4 --fps 60 --fi-model rife --overwrite -o /tmp/rife.mp4
+          for f in /tmp/classic-flow.mp4 /tmp/rife.mp4; do
+            ffprobe -v error -select_streams v -show_entries stream=width,height,r_frame_rate,nb_frames -of csv=p=0 "$f"
+          done
+          # The GUI must start and stay up.
+          "$APP/prism-app" /tmp/in.mp4 &
+          PID=$!
+          sleep 25
+          kill -0 "$PID"
+          screencapture -x /tmp/gui.png || true
+          kill "$PID"
+          hdiutil detach /tmp/prism-dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-gui-screenshot
+          path: /tmp/gui.png
+          if-no-files-found: ignore
+
+  windows:
+    name: Windows (installer and portable zip)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Rust toolchain
+        run: rustup update stable --no-self-update; rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows
+      - name: Build the installer and portable zip
+        run: powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
+      - name: Smoke test a silent install and uninstall
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-Item dist\*-setup.exe).FullName
+          $dir = Join-Path $env:RUNNER_TEMP 'Prism Video Enhancer'
+          $p = Start-Process $setup -ArgumentList @('--silent', '--dir', "`"$dir`"", '--no-desktop') -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "install failed ($($p.ExitCode))" }
+          & "$dir\prism.exe" models list
+          if ($LASTEXITCODE -ne 0) { throw 'installed prism.exe failed' }
+          $u = Start-Process "$dir\uninstall.exe" -ArgumentList @('--uninstall', '--silent') -Wait -PassThru
+          if ($u.ExitCode -ne 0) { throw "uninstall failed ($($u.ExitCode))" }
+          Start-Sleep 6
+          if (Test-Path $dir) { throw 'install folder was not removed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*-setup.exe
+            dist/*-portable.zip
+          if-no-files-found: error
+
+  linux:
+    name: Linux (.deb and .tar.gz)
+    runs-on: ubuntu-latest
+    # Debian 11 (glibc 2.31), so the binaries run on Ubuntu 20.04+, Debian 11+, Fedora and others.
+    container: rust:1-bullseye
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: linux
+      - name: Build the packages
+        run: bash packaging/linux/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/*.deb
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  linux-test:
+    name: Linux smoke test (Ubuntu 22.04, FFmpeg 4.4)
+    needs: linux
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: dist
+      - name: Install the .deb and run jobs
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq ./dist/*.deb
+          prism devices
+          cd /tmp
+          ffmpeg -hide_banner -loglevel error -f lavfi -i "testsrc2=s=320x180:r=30" -t 2 -c:v libx264 -pix_fmt yuv420p in.mp4
+          prism run in.mp4 --upscale 2x --fps 60 --overwrite -o classic-flow.mp4
+          prism models fetch rife
+          prism run in.mp4 --fps 60 --fi-model rife --overwrite -o rife.mp4
+          for f in classic-flow.mp4 rife.mp4; do
+            ffprobe -v error -select_streams v -show_entries stream=width,height,r_frame_rate,nb_frames -of csv=p=0 "$f"
+          done
+
+  release:
+    name: Publish a GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows, linux-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # By name, so the macOS screenshot artifact is not published.
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: dist
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Prism Video Enhancer $GITHUB_REF_NAME" --generate-notes

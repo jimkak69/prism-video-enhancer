@@ -1,0 +1,21 @@
+[package]
+name = "prism-installer"
+description = "Windows setup program for Prism Video Enhancer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "prism-setup"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+eframe.workspace = true
+egui.workspace = true
+rfd.workspace = true
+prism-core.workspace = true
+zip = { workspace = true, features = ["deflate"] }

@@ -1,0 +1,22 @@
+[package]
+name = "prism-app"
+description = "Desktop GUI for Prism Video Enhancer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "prism-app"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+eframe.workspace = true
+egui.workspace = true
+rfd.workspace = true
+crossbeam-channel.workspace = true
+prism-core.workspace = true
+prism-engine.workspace = true

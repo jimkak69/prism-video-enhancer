@@ -1,0 +1,8 @@
+/target/
+# Build output of tools/setup-gnu-toolchain.ps1 (the installed copy lives in %CARGO_HOME%\bin)
+/tools/bin/
+
+# Converted model files are large and user-generated
+/models/*.onnx
+/models/*.pth
+/dist/
