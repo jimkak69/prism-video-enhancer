@@ -124,6 +124,10 @@ jobs:
     runs-on: ubuntu-latest
     container: ubuntu:22.04
     timeout-minutes: 30
+    # Container jobs default to sh, which has no `set -o pipefail`; the scripts need bash.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/download-artifact@v4
         with:
