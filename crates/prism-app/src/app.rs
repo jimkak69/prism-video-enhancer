@@ -122,6 +122,11 @@ struct SidePlayer {
 struct Playback {
     started: Instant,
     from: f64,
+    /// Source seconds per wall-clock second: below 1 while a slow-motion preview plays, so the
+    /// processed side runs at its real speed and the original slows down to stay aligned.
+    rate: f64,
+    /// Where playback stops: the end of the rendered clips being played, or the out point.
+    end: f64,
     original: Player,
     sides: [Option<SidePlayer>; 2],
 }
@@ -900,6 +905,18 @@ impl PrismApp {
         }
     }
 
+    /// Rendered preview clips for the visible tabs, per side.
+    fn visible_clips(&self, path: &Path) -> [Option<&PreviewClip>; 2] {
+        let mut out = [None, None];
+        for (side, c) in self.contents().into_iter().enumerate() {
+            let Some(Content::Tab(i)) = c else { continue };
+            let Some(s) = self.run_settings(i) else { continue };
+            let hash = settings_hash(&s);
+            out[side] = self.clips.iter().rev().find(|c| c.source == path && c.settings_hash == hash && self.playhead >= c.start - 1e-6 && self.playhead <= c.start + c.duration + 1e-6);
+        }
+        out
+    }
+
     fn toggle_play(&mut self) {
         if self.playback.take().is_some() {
             return;
@@ -908,33 +925,41 @@ impl PrismApp {
         let (w, h) = media::display_size(&info, 1280, 720);
         let fps = info.fps.as_f64().max(1.0);
         let trim = self.active_settings().and_then(|s| s.trim);
-        let end = trim.map(|t| t.end).unwrap_or(info.duration);
-        if self.playhead >= end - 1.0 / fps {
+        let mut end = trim.map(|t| t.end).unwrap_or(info.duration);
+        // At the end of a rendered preview, play it again from its start.
+        let clips = self.visible_clips(&info.path);
+        if let Some(c) = clips.iter().flatten().find(|c| self.playhead >= c.start + c.duration - 1.5 / fps) {
+            self.playhead = c.start;
+        } else if self.playhead >= end - 1.0 / fps {
             self.playhead = trim.map(|t| t.start).unwrap_or(0.0);
         }
+        let clips: Vec<(usize, PathBuf, f64, f64, f64, (usize, usize), f64)> = self
+            .visible_clips(&info.path)
+            .iter()
+            .enumerate()
+            .filter_map(|(side, c)| c.filter(|c| self.playhead < c.start + c.duration).map(|c| (side, c.path.clone(), c.start, c.duration, c.stretch, c.size, c.fps)))
+            .collect();
         let Ok(original) = Player::start(&tools, &info.path, self.playhead, w, h, fps) else { return };
         let mut sides: [Option<SidePlayer>; 2] = [None, None];
-        for (side, c) in self.contents().into_iter().enumerate() {
-            let Some(Content::Tab(i)) = c else { continue };
-            let Some(s) = self.run_settings(i) else { continue };
-            let hash = settings_hash(&s);
-            if let Some(clip) = self.clips.iter().rev().find(|c| c.source == info.path && c.settings_hash == hash && self.playhead >= c.start && self.playhead < c.start + c.duration) {
-                let (pw, ph) = fit_size(clip.size, 1280, 720);
-                if let Ok(player) = Player::start(&tools, &clip.path, (self.playhead - clip.start) * clip.stretch, pw, ph, clip.fps) {
-                    sides[side] = Some(SidePlayer { player, stretch: clip.stretch });
-                }
+        let mut slowest = 1.0f64;
+        for (side, path, start, duration, stretch, size, clip_fps) in clips {
+            let (pw, ph) = fit_size(size, 1280, 720);
+            if let Ok(player) = Player::start(&tools, &path, (self.playhead - start) * stretch, pw, ph, clip_fps) {
+                sides[side] = Some(SidePlayer { player, stretch });
+                slowest = slowest.max(stretch);
+                end = end.min(start + duration);
             }
         }
-        self.playback = Some(Playback { started: Instant::now(), from: self.playhead, original, sides });
+        self.playback = Some(Playback { started: Instant::now(), from: self.playhead, rate: 1.0 / slowest, end, original, sides });
     }
 
     fn update_playback(&mut self, ctx: &egui::Context) {
         let Some(pb) = &mut self.playback else { return };
-        let Some(info) = self.project.selected.and_then(|i| self.project.sources.get(i)).and_then(|s| self.infos.get(&s.path)) else { return };
-        let end = self.project.selected.and_then(|i| self.project.sources.get(i)).and_then(|s| s.active().settings.trim).map(|t| t.end).unwrap_or(info.duration);
-        let elapsed = pb.started.elapsed().as_secs_f64();
+        // Source time advances at `rate`; each clip plays `stretch` times faster than that, which
+        // for the slowest clip is real time.
+        let elapsed = pb.started.elapsed().as_secs_f64() * pb.rate;
         let t = pb.from + elapsed;
-        if t >= end {
+        if t >= pb.end {
             self.playback = None;
             return;
         }
@@ -950,6 +975,11 @@ impl PrismApp {
             }
         }
         ctx.request_repaint_after(Duration::from_millis(8));
+    }
+
+    /// The slow-motion factor of the preview being played, if it is slowed.
+    pub(crate) fn playing_slow_motion(&self) -> Option<f64> {
+        self.playback.as_ref().map(|p| 1.0 / p.rate).filter(|f| *f > 1.0 + 1e-9)
     }
 
     fn step(&mut self, frames: f64) {
@@ -2047,6 +2077,10 @@ impl PrismApp {
             }
         }
         ui.painter().rect_filled(Rect::from_min_size(pos2(row.left() + 128.0, row.top()), vec2(1.0, row.height())), 0.0, RAISED);
+        if let Some(factor) = self.playing_slow_motion() {
+            let label = format!("{}x slow motion", (factor * 100.0).round() / 100.0);
+            ui.painter().text(pos2(row.left() + 142.0, row.center().y), Align2::LEFT_CENTER, label, theme::semibold(12.5), ACCENT);
+        }
         // Centre: transport.
         let playing = self.playback.is_some();
         let bw = if full.width() < 900.0 { 36.0 } else { 44.0 };

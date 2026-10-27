@@ -2904,7 +2904,7 @@ checksum = "e8cf8e6a8aa66ce33f63993ffc4ea4271eb5b0530a9002db8455ea6050c77bfa"
 
 [[package]]
 name = "prism-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -2919,7 +2919,7 @@ dependencies = [
 
 [[package]]
 name = "prism-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2932,7 +2932,7 @@ dependencies = [
 
 [[package]]
 name = "prism-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "dirs",
@@ -2943,7 +2943,7 @@ dependencies = [
 
 [[package]]
 name = "prism-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -2962,7 +2962,7 @@ dependencies = [
 
 [[package]]
 name = "prism-installer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "eframe",
